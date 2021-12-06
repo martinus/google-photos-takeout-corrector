@@ -27,13 +27,71 @@ Dir.glob("#{dir}/**/*.json") do |f|
             raise "no valid t: #{t}"
         end
 
-        media_file = "#{File.dirname(f)}/#{json['title']}"
-        if !File.exist?(media_file)
+        # basename maximum 47 characters
+        # don'T allow several unicode characters 
+
+        json_title = json['title'].gsub(/[\u0026-\u0026\:]/, '_')
+        title_ext = File.extname(json_title)
+        if (title_ext == "")
+            title_ext = ".jpg"
+        end
+        title_noext = json_title.delete_suffix(title_ext)
+        title = title_noext[0...47] + title_ext
+
+        media_file = "#{File.dirname(f)}/#{title}"
+
+        found = false
+        if File.exist?(media_file)
+            file_to_time[media_file] = t
+            found = true
+        end
+
+        # always try to add '(1)' before the suffix
+        i = 1
+        loop do
+            title = "#{title_noext[0...47]}(#{i})#{title_ext}"
+            media_file1 = "#{File.dirname(f)}/#{title}"
+
+            #title = File.basename(f).delete_suffix('.json')
+            #media_file = "#{File.dirname(f)}/#{title}"
+            if !File.exist?(media_file1)
+                break
+            end
+
+            file_to_time[media_file1] = t
+            found = true
+            i += 1
+        end
+
+        if found == false
             # safety check to see if the media file actually exists
+            p f
+            p File.dirname(f)
+            p File.basename(f)
             raise "File '#{media_file}' doesn't exist!"
         end
 
-        file_to_time[media_file] = t
+        # check if there is a "-edited" version
+        ext = File.extname(media_file)
+        edited_media_file = "#{media_file.delete_suffix(ext)}-edited#{ext}"
+        if File.exist?(edited_media_file)
+            file_to_time[edited_media_file] = t
+        end
+
+        # check if it's an MVIMG file, and add the .MP4 as well
+        if basename.start_with?('MVIMG')
+            mvimg_file = "#{media_file.delete_suffix(ext)}.MP4"
+            if File.exist?(mvimg_file)
+                file_to_time[mvimg_file] = t
+            end
+        end
+
+        if media_file.end_with?('MP.jpg')
+            mp_file = media_file.delete_suffix('.jpg')
+            if File.exist?(mp_file)
+                file_to_time[mp_file] = t
+            end
+        end
     rescue => err
         STDERR.puts "#{f}: #{err}"
         raise
@@ -44,17 +102,16 @@ end
 Dir.glob("#{dir}/**/*") do |f|
     next if File.directory?(f)
     next if File.extname(f) == ".json"
-    p f
     if !file_to_time.has_key?(f)
-        raise "Cannot find '#{f}'. File.exist? #{File.exist?(f)}"
+        STDERR.puts "Cannot find '#{f}'. File.exist? #{File.exist?(f)}"
     end
 end
 
 # finally, seems that no files are missing => update everything
-puts "Updating date of #{files_and_time.size} files..."
-files_and_time.each do |file, t|
-    #File.lutime(t, t, media_file)
-    puts "TODO"
+puts "Updating date of #{file_to_time.size} files..."
+file_to_time.each do |file, t|
+    File.lutime(t, t, file)
+    #puts "#{file}"
 end
 
 puts "done!"
